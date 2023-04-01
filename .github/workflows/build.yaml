@@ -1,0 +1,53 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-toolchain:
+    name: Build Toolchain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          repository: ${{ secrets.OPENWRT_REPO }}
+          token: ${{ secrets.OPENWRT_REPO_TOKEN }}
+          path: openwrt
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "dash dash/sh boolean false" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash || true
+
+          openwrt/start prepare
+          openwrt/start build ${{ matrix.router }}
+          openwrt/start upload ${{ matrix.router }}
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        router: [r0, r1]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          repository: ${{ secrets.OPENWRT_REPO }}
+          token: ${{ secrets.OPENWRT_REPO_TOKEN }}
+          path: openwrt
+      - name: Build
+        env:
+          SECRETS_TOKEN: ${{ secrets.SECRETS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "dash dash/sh boolean false" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash || true
+          openwrt/start prepare
+          openwrt/start build ${{ matrix.router }}
+          openwrt/start upload ${{ matrix.router }}

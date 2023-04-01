@@ -1,0 +1,158 @@
+version: 2.1
+
+executors:
+  builder:
+    resource_class: arm.large
+    machine:
+      image: ubuntu-2204:2023.04.2
+
+jobs:
+  build-base-routers:
+    executor: builder
+    steps:
+      - add_ssh_keys:
+          fingerprints:
+            - f2:de:ae:2f:58:3a:af:13:ff:7e:7d:d4:3a:74:ba:f2
+      - run:
+          name: Checkout
+          command: |
+            echo "dash dash/sh boolean false" | sudo debconf-set-selections
+            sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash || true
+            umask u=rwx,g=rx,o=rx
+            ls -la ~/.ssh
+            cat ~/.ssh/config
+
+            umask u=rwx,g=rx,o=rx
+            git clone --depth 1 $OPENWRT_REPO openwrt
+            git -C openwrt rev-parse HEAD
+            openwrt/start get openwrt_gen common >.openwrt-gen
+            rm -r openwrt/build
+      - restore_cache:
+          keys:
+            - openwrt-v1-gen{{ checksum ".openwrt-gen" }}-{{ arch }}
+      - run:
+          name: Build
+          command: |
+            if [ ! -e openwrt/build ]; then
+              openwrt/start prepare
+              openwrt/start build base common
+            fi
+      - save_cache:
+          key: openwrt-v1-gen{{ checksum ".openwrt-gen" }}-{{ arch }}
+          paths:
+            - openwrt/build
+
+  build-routers:
+    executor: builder
+    parameters:
+      router:
+        type: string
+    steps:
+      - add_ssh_keys:
+          fingerprints:
+            - f2:de:ae:2f:58:3a:af:13:ff:7e:7d:d4:3a:74:ba:f2
+      - run:
+          name: Checkout
+          command: |
+            echo "dash dash/sh boolean false" | sudo debconf-set-selections
+            sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash || true
+
+            umask u=rwx,g=rx,o=rx
+            git clone --depth 1 $OPENWRT_REPO openwrt
+            git -C openwrt rev-parse HEAD
+            openwrt/start get openwrt_gen common >.openwrt-gen
+            rm -r openwrt/build
+      - restore_cache:
+          keys:
+            - openwrt-v1-gen{{ checksum ".openwrt-gen" }}-{{ arch }}
+      - run:
+          name: Build
+          command: |
+            openwrt/start prepare
+            openwrt/start release << parameters.router >>
+
+  build-base-test:
+    executor: builder
+    steps:
+      - add_ssh_keys:
+          fingerprints:
+            - f2:de:ae:2f:58:3a:af:13:ff:7e:7d:d4:3a:74:ba:f2
+      - run:
+          name: Checkout
+          command: |
+            echo "dash dash/sh boolean false" | sudo debconf-set-selections
+            sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash || true
+            umask u=rwx,g=rx,o=rx
+
+            umask u=rwx,g=rx,o=rx
+            git clone --depth 1 $OPENWRT_REPO openwrt
+            git -C openwrt rev-parse HEAD
+            openwrt/start get openwrt_gen test >.openwrt-gen
+            rm -r openwrt/build
+      - restore_cache:
+          keys:
+            - openwrt-v1-gen{{ checksum ".openwrt-gen" }}-{{ arch }}
+      - run:
+          name: Build
+          command: |
+            if [ ! -e openwrt/build ]; then
+              openwrt/start prepare
+              openwrt/start build base test
+            fi
+      - save_cache:
+          key: openwrt-v1-gen{{ checksum ".openwrt-gen" }}-{{ arch }}
+          paths:
+            - openwrt/build
+
+  build-test:
+    executor: builder
+    steps:
+      - add_ssh_keys:
+          fingerprints:
+            - f2:de:ae:2f:58:3a:af:13:ff:7e:7d:d4:3a:74:ba:f2
+      - run:
+          name: Checkout
+          command: |
+            echo "dash dash/sh boolean false" | sudo debconf-set-selections
+            sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash || true
+
+            umask u=rwx,g=rx,o=rx
+            git clone --depth 1 $OPENWRT_REPO openwrt
+            git -C openwrt rev-parse HEAD
+            openwrt/start get openwrt_gen common >.openwrt-gen
+            rm -r openwrt/build
+      - restore_cache:
+          keys:
+            - openwrt-v1-gen{{ checksum ".openwrt-gen" }}-{{ arch }}
+      - run:
+          name: Build
+          command: |
+            openwrt/start prepare
+            openwrt/start release test
+
+parameters:
+  build-routers:
+    type: boolean
+    default: false
+  build-test:
+    type: boolean
+    default: false
+
+workflows:
+  build-routers:
+    when: << pipeline.parameters.build-routers >>
+    jobs:
+      - build-base-routers
+      - build-routers:
+          requires:
+            - build-base-routers
+          matrix:
+            parameters:
+              router: [r0, r1]
+  build-test:
+    when: << pipeline.parameters.build-test >>
+    jobs:
+      - build-base-test
+      - build-test:
+          requires:
+            - build-base-test
